@@ -20,15 +20,15 @@ class ChatRequest(BaseModel):
     message: str
 
 
-# Load knowledge base ONCE (faster)
+# Load knowledge base once at startup
 with open("knowledge.json", "r", encoding="utf-8") as f:
     KB = json.load(f)["faqs"]
 
 
-# Basic stopwords
+# Stopwords
 STOPWORDS = {
     "is","the","a","an","how","what","when","where","why","do","does","did",
-    "we","you","i","are","to","for","of","in","on","with"
+    "we","you","i","are","to","for","of","in","on","with","slab"
 }
 
 
@@ -51,17 +51,18 @@ def search_kb(question):
 
         common = question_words.intersection(faq_words)
 
-        if len(faq_words) == 0:
+        if len(question_words) == 0:
             continue
 
-        score = len(common) / len(faq_words)
+        # Better scoring method
+        score = len(common) / len(question_words)
 
         if score > best_score:
             best_score = score
             best_answer = faq["answer"]
 
-    # Strong threshold to prevent wrong answers
-    if best_score >= 0.5:
+    # Threshold to prevent wrong matches
+    if best_score >= 0.4:
         return best_answer
 
     return None
@@ -94,7 +95,7 @@ def home():
 @app.post("/chat")
 def chat(request: ChatRequest):
 
-    question = request.message
+    question = request.message.strip()
 
     log_question(question)
 
