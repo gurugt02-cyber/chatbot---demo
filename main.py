@@ -3,10 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import json
+import re
 
 app = FastAPI()
 
-# Enable CORS (important for hosting)
+# Allow frontend access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,49 +20,21 @@ class ChatRequest(BaseModel):
     message: str
 
 
-# Load knowledge base ONCE at startup
+# Load knowledge base ONCE (faster)
 with open("knowledge.json", "r", encoding="utf-8") as f:
-    kb = json.load(f)
+    KB = json.load(f)["faqs"]
 
 
-# Simple stopword list
-stop_words = {
-    "what","is","how","the","a","an","to","of","for",
-    "do","we","are","can","you","please","tell"
+# Basic stopwords
+STOPWORDS = {
+    "is","the","a","an","how","what","when","where","why","do","does","did",
+    "we","you","i","are","to","for","of","in","on","with"
 }
 
 
-# Serve chatbot UI
-@app.get("/")
-def home():
-    return FileResponse("chat.html")
-
-
-def log_question(question):
-    with open("logs.txt", "a", encoding="utf-8") as f:
-        f.write(question + "\n")
-
-
-def log_unanswered(question):
-    try:
-        with open("unanswered.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except:
-        data = []
-
-    if question not in data:
-        data.append(question)
-
-    with open("unanswered.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-
-
 def clean_text(text):
-
-    words = text.lower().split()
-
-    words = [w for w in words if w not in stop_words]
-
+    words = re.findall(r"\b\w+\b", text.lower())
+    words = [w for w in words if w not in STOPWORDS]
     return set(words)
 
 
@@ -72,26 +45,56 @@ def search_kb(question):
     best_score = 0
     best_answer = None
 
-    for faq in kb["faqs"]:
+    for faq in KB:
 
         faq_words = clean_text(faq["question"])
 
-        score = len(question_words.intersection(faq_words))
+        common = question_words.intersection(faq_words)
+
+        if len(faq_words) == 0:
+            continue
+
+        score = len(common) / len(faq_words)
 
         if score > best_score:
             best_score = score
             best_answer = faq["answer"]
 
-    if best_score >= 2:
+    # Strong threshold to prevent wrong answers
+    if best_score >= 0.5:
         return best_answer
 
     return None
 
 
+def log_question(question):
+    with open("logs.txt", "a", encoding="utf-8") as f:
+        f.write(question + "\n")
+
+
+def log_unanswered(question):
+
+    try:
+        with open("unanswered.json", "r") as f:
+            data = json.load(f)
+    except:
+        data = []
+
+    data.append(question)
+
+    with open("unanswered.json", "w") as f:
+        json.dump(data, f, indent=2)
+
+
+@app.get("/")
+def home():
+    return FileResponse("chat.html")
+
+
 @app.post("/chat")
 def chat(request: ChatRequest):
 
-    question = request.message.strip()
+    question = request.message
 
     log_question(question)
 
